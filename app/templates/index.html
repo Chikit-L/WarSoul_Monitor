@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>战魂觉醒OL 商户价格监控</title>
+  <meta name="color-scheme" content="light dark">
+  <style>
+    :root { --fg:#111827; --muted:#6b7280; --border:#e5e7eb; --bg:#ffffff; }
+    @media (prefers-color-scheme: dark) {
+      :root { --fg:#e5e7eb; --muted:#9ca3af; --border:#374151; --bg:#111827; }
+    }
+    body{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;color:var(--fg);background:var(--bg);
+         max-width:1100px;margin:32px auto;padding:0 16px;line-height:1.6}
+    h1{margin:0 0 8px 0}
+    .muted{color:var(--muted)}
+    .card{border:1px solid var(--border);border-radius:14px;padding:16px;margin-top:16px;background:transparent}
+    pre{white-space:pre-wrap;margin:0}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px;margin-top:16px}
+    canvas{width:100%;height:260px}
+  </style>
+</head>
+<body>
+  <h1>战魂觉醒OL 商户价格监控</h1>
+  <div class="muted">最后更新：{{updated_at}}</div>
+
+  <!-- ① 五个小曲线 -->
+  <div id="charts" class="grid"></div>
+
+  <!-- ② 投资优先级排行榜（从报告文本里抽取并提前展示） -->
+  <div class="card">
+    <h3 style="margin:0 0 8px 0;">📈 投资优先级排行榜</h3>
+    <pre id="ranking">加载中…</pre>
+  </div>
+
+  <!-- ③ 详细报告（原样展示，包含完整文本） -->
+  <div class="card">
+    <h3 style="margin:0 0 8px 0;">报告</h3>
+    <pre id="report">{{report}}</pre>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    // —— 渲染五张小曲线 —— //
+    (async function renderCharts(){
+      const res = await fetch('data.json', {cache: 'no-store'});
+      const data = await res.json();
+      const labels = data.x || [];
+      const container = document.getElementById('charts');
+
+      const toLine = (arr) => (arr || []).map(v => (v === null ? null : Number(v)));
+
+      const makeCanvas = (title) => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        const h3 = document.createElement('h3');
+        h3.textContent = title;
+        h3.style.margin = "0 0 8px 0";
+        const canvas = document.createElement('canvas');
+        card.appendChild(h3);
+        card.appendChild(canvas);
+        container.appendChild(card);
+        return canvas;
+      };
+
+      for (const s of (data.series || [])) {
+        const canvas = makeCanvas(s.name);
+        const ctx = canvas.getContext('2d');
+        new Chart(ctx, {
+          type: 'line',
+          data: { labels, datasets: [{ label: s.name, data: toLine(s.values), spanGaps: true }] },
+          options: {
+            animation: false, responsive: true,
+            interaction: { mode: 'index', intersect: false },
+            scales: { x: { ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 8 } }, y: { beginAtZero: false } },
+            plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${c.raw}` } } }
+          }
+        });
+      }
+    })();
+
+    // —— 从报告文本中抽取“📈 投资优先级排行榜”并提前展示 —— //
+    (function renderRanking(){
+      const fullReport = (document.getElementById('report').textContent || '').trim();
+      function extractRanking(txt){
+        const header = '📈 投资优先级排行榜';
+        const i = txt.indexOf(header);
+        if (i === -1) return '';
+        // 取从“排行榜”开始到文本结束（你的生成逻辑里，排行榜在报告末尾）
+        return txt.slice(i).trim();
+      }
+      const ranking = extractRanking(fullReport);
+      document.getElementById('ranking').textContent = ranking || '（暂无数据）';
+    })();
+  </script>
+</body>
+</html>

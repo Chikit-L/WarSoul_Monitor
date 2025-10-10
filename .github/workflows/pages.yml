@@ -1,0 +1,64 @@
+name: Build & Deploy Pages
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    # UTC时间 = 北京时间 - 8 小时；整点后 1 分钟触发
+    - cron: "1 2 * * *"    # 北京 10:01
+    - cron: "1 6 * * *"    # 北京 14:01
+    - cron: "1 10 * * *"   # 北京 18:01
+    - cron: "1 14 * * *"   # 北京 22:01
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: Run monitor
+        env:
+          ARING_TOKEN: ${{ secrets.ARING_TOKEN }}
+          HISTORY_URL: https://chikit-l.github.io/WarSoul_Monitor/price_history.txt
+        run: |
+          python app/monitor.py
+          test -f site/index.html
+
+      # 关键：先配置 Pages（必须在 upload/deploy 前）
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact for Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
