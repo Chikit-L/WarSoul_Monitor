@@ -7,12 +7,12 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import requests
 
-
 # =================== 配置 ===================
 API_URL = "https://api.aring.cc/awakening-of-war-soul-ol/api/commerce/list"
 DATA_FILE = "price_history.txt"
 SITE_DIR = pathlib.Path("site")
 TEMPLATE_FILE = pathlib.Path("app/templates/index.html")
+PUBLISH_HISTORY = False  # True 时把 price_history.txt 复制到 site/ 对外公开
 
 CST = ZoneInfo("Asia/Shanghai")
 
@@ -39,6 +39,7 @@ HEADERS = {
 # =================== 时间工具 ===================
 def now_cst():
     return datetime.now(CST)
+
 SLOTS = [
     (10, 14, "10:00"),  # 10:00-13:59
     (14, 18, "14:00"),  # 14:00-17:59
@@ -54,37 +55,21 @@ def get_slot(now=None):
     if now is None:
         now = now_cst()
     h = now.hour
-    # 凌晨 00:00-09:59 -> 前一天 22:00 档
     if h < 10:
         slot_date = (now - timedelta(days=1)).date()
         return slot_date.strftime("%Y/%m/%d"), "22:00"
-    # 白天段按表匹配
     for start_h, end_h, label in SLOTS:
         if start_h <= h < end_h:
             return now.date().strftime("%Y/%m/%d"), label
-    # 理论到不了这里，兜底到当日 22:00
     return now.date().strftime("%Y/%m/%d"), "22:00"
 
 # =================== 历史数据读写 ===================
-def try_fetch_history_from_pages():
-    """
-    运行开始前，尝试从上一次发布的 Pages 拉回历史数据，以便连续累计。
-    在 Actions 中以环境变量传入：
-      HISTORY_URL=https://<user>.github.io/<repo>/price_history.txt
-    """
-    history_url = os.getenv("HISTORY_URL")
-    if not history_url:
-        return
-    try:
-        r = requests.get(history_url, timeout=10)
-        if r.status_code == 200 and r.text.strip():
-            with open(DATA_FILE, "w", encoding="utf-8") as f:
-                f.write(r.text)
-            print("✅ 已从 Pages 取回历史文件")
-        else:
-            print(f"ℹ️ 未从 Pages 获取到历史（status={r.status_code}）")
-    except Exception as e:
-        print(f"⚠️ 拉取历史失败：{e}")
+def ensure_local_history_only():
+    """不回填远程，只用仓库里的 price_history.txt。没有就从空文件开始。"""
+    if os.path.exists(DATA_FILE) and os.path.getsize(DATA_FILE) > 0:
+        print("📄 使用仓库中的 price_history.txt")
+    else:
+        print("ℹ️ 仓库中暂无 price_history.txt，将从空文件开始")
 
 def load_historical_data():
     """读取历史 price_history.txt，返回 {cid: [prices...]}"""
@@ -140,7 +125,7 @@ def save_data_row(current_date, time_slot, commerce_data):
         f.write(" ".join(row) + "\n")
     print("✅ 已追加到 price_history.txt")
 
-# =================== 分析逻辑（来自你原脚本，略有整理） ===================
+# =================== 分析逻辑 ===================
 def calculate_trend_analysis(prices):
     if len(prices) < 3:
         return {
@@ -222,7 +207,7 @@ def calculate_investment_advice(percentile, trend_analysis):
     elif percentile <= 85: position_level = "高位"
     else: position_level = "极高位"
 
-    position_score = 10 - (percentile / 10)  # 0%-100% -> 10-0
+    position_score = 10 - (percentile / 10)
 
     mid_trend = trend_analysis['mid_trend']
     short_trend = trend_analysis['short_trend']
@@ -353,36 +338,33 @@ def write_site_assets(chart_payload: dict, report_text: str):
     """
     生成站点：
       - site/data.json
-      - site/index.html（含“最后更新”与“报告”）
-      - site/price_history.txt（隐藏链接但保留文件）
+      - site/index.html
+      - （可选）site/price_history.txt
     """
     SITE_DIR.mkdir(parents=True, exist_ok=True)
 
-    # data.json
     (SITE_DIR / "data.json").write_text(
         json.dumps(chart_payload, ensure_ascii=False),
         encoding="utf-8"
     )
 
-    # 历史文件（便于后续拉取）
-    if os.path.exists(DATA_FILE):
+    if PUBLISH_HISTORY and os.path.exists(DATA_FILE):
         shutil.copyfile(DATA_FILE, SITE_DIR / "price_history.txt")
 
-    # index.html
     html = TEMPLATE_FILE.read_text(encoding="utf-8")
     html = html.replace("{{updated_at}}", chart_payload.get("updated_at", ""))
     html = html.replace("{{report}}", report_text or "")
     (SITE_DIR / "index.html").write_text(html, encoding="utf-8")
 
-    print("✅ 已生成：site/index.html, site/data.json, site/price_history.txt")
+    print("✅ 已生成：site/index.html, site/data.json" + ("，site/price_history.txt" if PUBLISH_HISTORY else ""))
 
 # =================== 主流程 ===================
 def run():
     if not HEADERS.get("token"):
         raise RuntimeError("缺少 ARING_TOKEN 环境变量，请在 GitHub Secrets 配置。")
 
-    print("🚀 拉回历史 …")
-    try_fetch_history_from_pages()
+    print("🚀 准备历史数据（仅本地） …")
+    ensure_local_history_only()
 
     print("🚀 拉取最新价格 …")
     r = requests.get(API_URL, headers=HEADERS, timeout=12)
@@ -394,8 +376,7 @@ def run():
 
     # 当前档位（北京时间）
     now = now_cst()
-    current_date, time_slot = get_slot(now)  # ← 这里会处理 00:00-09:59 归前一天 22:00
-
+    current_date, time_slot = get_slot(now)
 
     # 整理当期价格
     commerce_data = {}
@@ -411,7 +392,6 @@ def run():
 
     # 载入历史，构建报告
     historical = load_historical_data()
-
     title = f"📊 {current_date} {time_slot} 价格监控报告\n{'='*40}\n"
     report_lines = [title]
 

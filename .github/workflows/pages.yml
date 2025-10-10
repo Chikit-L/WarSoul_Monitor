@@ -3,14 +3,14 @@ name: Build & Deploy Pages
 on:
   workflow_dispatch: {}
   schedule:
-    # UTC时间 = 北京时间 - 8 小时；整点后 1 分钟触发
+    # UTC = 北京时间 - 8 小时；整点后 1 分钟触发
     - cron: "1 2 * * *"    # 北京 10:01
     - cron: "1 6 * * *"    # 北京 14:01
     - cron: "1 10 * * *"   # 北京 18:01
     - cron: "1 14 * * *"   # 北京 22:01
 
 permissions:
-  contents: read
+  contents: write   # 需要写权限，便于回推 price_history.txt
   pages: write
   id-token: write
 
@@ -24,7 +24,9 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
-
+        with:
+          ref: main
+          
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -38,12 +40,26 @@ jobs:
       - name: Run monitor
         env:
           ARING_TOKEN: ${{ secrets.ARING_TOKEN }}
-          HISTORY_URL: https://chikit-l.github.io/WarSoul_Monitor/price_history.txt
+          # 不再设置 HISTORY_URL
         run: |
           python app/monitor.py
           test -f site/index.html
 
-      # 关键：先配置 Pages（必须在 upload/deploy 前）
+      # 把新增的历史回写到 main 分支
+      - name: Commit updated price_history.txt back to main
+        run: |
+          set -e
+          # 有变化才提交
+          if git diff --quiet -- price_history.txt; then
+            echo "No changes in price_history.txt"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add price_history.txt
+            git commit -m "Update price history [skip ci]"
+            git push
+          fi
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
