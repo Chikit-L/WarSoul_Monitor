@@ -8,7 +8,7 @@ on:
     - cron: "1 6 * * *"    # 北京 14:01
     - cron: "1 10 * * *"   # 北京 18:01
     - cron: "1 14 * * *"   # 北京 22:01
-
+    - cron: "*/5 * * * *" 
 permissions:
   contents: write   # 允许回推 price_history.txt
   pages: write
