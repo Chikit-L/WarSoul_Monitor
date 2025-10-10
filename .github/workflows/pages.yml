@@ -29,13 +29,6 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      # 可选：整点后再随机延迟 1~2 分钟（60-119 秒）
-      - name: Delay 1-2 minutes (optional)
-        run: |
-          delay=$(( 60 + (RANDOM % 60) ))
-          echo "Sleeping for $delay seconds..."
-          sleep $delay
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
